@@ -1,0 +1,29 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+.env
+*.env
+
+# IDE/editor junk
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Runtime / data
+.tmp/
+tmp_audio/
+*.log
+
+# Stream chunks and media
+*.wav
+*.m4a
+
+# Local tooling
+.python-version
