@@ -19,7 +19,7 @@ class GroqSettings(BaseSettings):
     )
 
     api_key: str
-    base_url: str = Field(default="http://72.56.67.27/groq/openai/v1")
+    base_url: str = Field()
     whisper_model: str = Field(default="whisper-large-v3")
     llm_model: str = Field(default="llama-3.1-8b-instant")
     language: str = Field(default="ru")
@@ -30,24 +30,42 @@ class TelegramSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_file=".env",
-        env_prefix="TELEGRAM_",
         extra="ignore",
         case_sensitive=False,
     )
 
-    bot_token: str
-    chat_ids: List[str] = Field(default_factory=list)
+    # .env: TELEGRAM_BOT_TOKEN=...
+    bot_token: str = Field(..., alias="TELEGRAM_BOT_TOKEN")
+
+    # .env: TELEGRAM_CHAT_ID=425516815 или TELEGRAM_CHAT_ID=123,456
+    chat_ids: List[str] = Field(
+        default_factory=list,
+        alias="TELEGRAM_CHAT_ID",
+        validation_alias="TELEGRAM_CHAT_ID",
+    )
 
     @field_validator("chat_ids", mode="before")
     @classmethod
-    def _split_chat_ids(cls, raw: object) -> List[str]:
+    def split_chat_ids(cls, raw) -> List[str]:
+        # Ничего нет — возвращаем пустой список
         if raw is None:
             return []
-        if isinstance(raw, list):
-            return [str(item).strip() for item in raw if str(item).strip()]
+
+        # Если пришла строка — поддерживаем "1" или "1,2,3"
         if isinstance(raw, str):
             return [cid.strip() for cid in raw.split(",") if cid.strip()]
-        raise ValueError("TELEGRAM_CHAT_ID must be a comma-separated string or list.")
+
+        # Если пришёл int/float — делаем список из одного элемента
+        if isinstance(raw, (int, float)):
+            return [str(raw)]
+
+        # Если уже список — приводим элементы к строке
+        if isinstance(raw, list):
+            return [str(item).strip() for item in raw if str(item).strip()]
+
+        # На всякий случай — всё остальное тоже превращаем в одиночный список строк
+        return [str(raw)]
+
 
 
 class StreamSettings(BaseSettings):

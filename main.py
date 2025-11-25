@@ -14,6 +14,8 @@ from summarizer_service import SummarizerService
 from telegram_bot import TelegramNotifier
 from transcriber_service import TranscriptionService
 
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -64,7 +66,7 @@ async def run_pipeline(settings: AppSettings) -> None:
 async def main() -> None:
     try:
         settings = get_app_settings()
-    except Exception as exc:  # pragma: no cover - configuration errors
+    except Exception as exc: 
         logger.error("Failed to load configuration: %s", exc)
         raise SystemExit(1) from exc
 
@@ -72,7 +74,7 @@ async def main() -> None:
         await run_pipeline(settings)
     except asyncio.CancelledError:
         logger.info("Shutdown requested.")
-    except Exception as exc:  # pragma: no cover - defensive logging
+    except Exception as exc: 
         logger.exception("Fatal pipeline error: %s", exc)
         raise SystemExit(2) from exc
 

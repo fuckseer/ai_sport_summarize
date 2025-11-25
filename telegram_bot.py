@@ -18,6 +18,7 @@ class TelegramNotifier:
             raise ValueError("TELEGRAM_CHAT_ID must contain at least one chat/channel id.")
         self._bot = Bot(token=settings.bot_token)
         self._chat_ids: Iterable[str] = settings.chat_ids
+        self._closed = False
 
     async def __aenter__(self) -> "TelegramNotifier":
         return self
@@ -26,7 +27,14 @@ class TelegramNotifier:
         await self.close()
 
     async def close(self) -> None:
-        await self._bot.session.close()
+        if self._closed:
+            return
+        try:
+            await self._bot.close()
+        except Exception as exc:  # pragma: no cover - best-effort shutdown
+            logger.warning("Bot close() raised %s; ignoring.", exc)
+        finally:
+            self._closed = True
 
     async def send_message(self, text: str) -> None:
         if not text:

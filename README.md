@@ -36,7 +36,7 @@ Required variables:
 | Key | Description |
 | --- | ----------- |
 | `GROQ_API_KEY` | Your Groq API key (proxied via `GROQ_BASE_URL`). |
-| `GROQ_BASE_URL` | Must stay `http://72.56.67.27/groq/openai/v1`. |
+| `GROQ_BASE_URL` | Must stay `http://127.0.0.1/groq/openai/v1`. |
 | `TELEGRAM_BOT_TOKEN` | Bot token from BotFather. |
 | `TELEGRAM_CHAT_ID` | One or more comma-separated chat/channel IDs for delivery. |
 | `STREAM_URL` | HLS/DASH/YouTube/Twitch URL supported by `streamlink`. |
@@ -70,4 +70,5 @@ The service connects to the stream, starts producing transcripts, and posts aler
 
 ## License
 MIT (or specify your preferred license here).
+
 
