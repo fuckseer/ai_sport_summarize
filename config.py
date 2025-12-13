@@ -7,6 +7,23 @@ from typing import List
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    GROQ_API_KEY: str
+    # Используем официальный API Groq напрямую
+    GROQ_BASE_URL: str = "https://api.groq.com"
+
+    # Модели
+    WHISPER_MODEL: str = "whisper-large-v3"
+    LLM_MODEL: str = "llama-3.1-70b-versatile"  # Возьмем модель поумнее для анализа
+
+
+settings = Settings()
+
 
 class GroqSettings(BaseSettings):
     """Settings for interacting with Groq's API via the mandated proxy."""
