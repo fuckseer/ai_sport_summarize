@@ -1,182 +1,142 @@
 from __future__ import annotations
-
 import asyncio
-import contextlib
 import logging
-import shutil
+import os
+import subprocess
+import tempfile
 from pathlib import Path
-from typing import AsyncIterator, Optional, Set
+from typing import AsyncIterator
+from contextlib import suppress
 
 from config import StreamSettings
 
-logger = logging.getLogger(__name__)
-
-CHUNK_FILENAME_PATTERN = "chunk_%Y%m%d_%H%M%S.wav"
+logger = logging.getLogger("stream_capture")
 
 
 class StreamAudioCapture:
-    """Capture audio chunks from an arbitrary stream using streamlink + ffmpeg."""
+    """
+    Streamlink -> ffmpeg (segment) -> chunk WAV files.
+    Uses subprocess.Popen for streamlink to avoid fileno() issues.
+    """
 
     def __init__(self, settings: StreamSettings) -> None:
-        self.settings = settings
-        self.tmp_dir = settings.tmp_dir
-        self.chunk_duration = max(5, settings.chunk_duration_seconds)
-        self.reconnect_delay = max(1.0, settings.reconnect_delay_seconds)
-        self._streamlink_proc: Optional[asyncio.Process] = None
-        self._ffmpeg_proc: Optional[asyncio.Process] = None
-        self._pump_task: Optional[asyncio.Task[None]] = None
-        self._closing = False
-        self._seen_files: Set[str] = set()
+        self.stream_url = settings.stream_url
+        self.tmp_dir = Path(settings.tmp_dir)
+        self.tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    async def __aenter__(self) -> "StreamAudioCapture":
-        await self._start_pipeline()
+        self.chunk_duration = settings.chunk_duration_seconds
+        self.reconnect_delay = settings.reconnect_delay_seconds
+        self._shutdown = False
+
+    async def __aenter__(self):
+        logger.info("Starting stream capture for %s", self.stream_url)
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        await self.close()
-
-    async def close(self) -> None:
-        self._closing = True
-        await self._stop_pipeline()
-        await self._cleanup_tmp_dir()
+    async def __aexit__(self, exc_type, exc, tb):
+        logger.info("Stopping stream capture…")
+        self._shutdown = True
 
     async def audio_chunks(self) -> AsyncIterator[str]:
-        """Yield freshly created audio chunk file paths."""
-        while not self._closing:
-            await self._ensure_pipeline_alive()
-            new_chunks = await self._collect_new_chunks()
-            if not new_chunks:
-                await asyncio.sleep(1)
-                continue
+        """
+        Main async generator – reconnects automatically.
+        """
+        while not self._shutdown:
+            try:
+                async for p in self._run_session():
+                    yield p
+            except Exception as exc:
+                logger.error("Stream capture crashed: %s | retry in %.1fs",
+                             exc, self.reconnect_delay)
+                await asyncio.sleep(self.reconnect_delay)
 
-            for chunk in new_chunks:
-                if self._closing:
-                    break
-                logger.debug("Yielding audio chunk %s", chunk)
-                try:
-                    yield str(chunk)
-                finally:
-                    with contextlib.suppress(FileNotFoundError):
-                        chunk.unlink()
+    async def _run_session(self) -> AsyncIterator[str]:
+        """
+        Launch streamlink via Popen (sync),
+        pipe into ffmpeg (async),
+        yield chunk files from directory.
+        """
 
-    async def _start_pipeline(self) -> None:
-        logger.info("Starting stream capture for %s", self.settings.stream_url)
-        await self._stop_pipeline()
-        self.tmp_dir.mkdir(parents=True, exist_ok=True)
-        await self._cleanup_tmp_dir()
+        session_dir = Path(tempfile.mkdtemp(prefix="session_", dir=self.tmp_dir))
+        chunk_pattern = str(session_dir / "chunk_%03d.wav")
 
-        self._streamlink_proc = await asyncio.create_subprocess_exec(
+        # --------------------------------------------------------
+        # 1) Start streamlink via Popen (sync), NOT asyncio
+        # --------------------------------------------------------
+        streamlink_cmd = [
             "streamlink",
             "--stdout",
-            self.settings.stream_url,
+            "--retry-open", "2",
+            "--retry-stream", "2",
+            self.stream_url,
             "best",
+        ]
+
+        logger.info("Starting streamlink…")
+
+        streamlink_proc = subprocess.Popen(
+            streamlink_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        if streamlink_proc.stdout is None:
+            raise RuntimeError("Streamlink stdout is None!")
+
+        # --------------------------------------------------------
+        # 2) ffmpeg reads directly from streamlink_proc.stdout
+        # --------------------------------------------------------
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-loglevel", "error",
+            "-i", "pipe:0",
+            "-vn",
+            "-ac", "1",
+            "-ar", "16000",
+            "-f", "segment",
+            "-segment_time", str(self.chunk_duration),
+            "-af", "silencedetect=noise=-50dB:d=0.2,apad",
+            chunk_pattern,
+        ]
+
+        logger.info("Starting ffmpeg…")
+
+        ffmpeg_proc = await asyncio.create_subprocess_exec(
+            *ffmpeg_cmd,
+            stdin=streamlink_proc.stdout,     # real FD — OK
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        self._ffmpeg_proc = await asyncio.create_subprocess_exec(
-            "ffmpeg",
-            "-loglevel",
-            "error",
-            "-i",
-            "pipe:0",
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            "-f",
-            "segment",
-            "-segment_time",
-            str(self.chunk_duration),
-            "-segment_format",
-            "wav",
-            "-reset_timestamps",
-            "1",
-            "-strftime",
-            "1",
-            str(self.tmp_dir / CHUNK_FILENAME_PATTERN),
-            stdin=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        self._pump_task = asyncio.create_task(self._pipe_streamlink_to_ffmpeg())
 
-    async def _stop_pipeline(self) -> None:
-        if self._pump_task:
-            self._pump_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._pump_task
-        for proc in (self._streamlink_proc, self._ffmpeg_proc):
-            if proc and proc.returncode is None:
-                proc.terminate()
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=5)
-                except asyncio.TimeoutError:
-                    proc.kill()
-        self._streamlink_proc = None
-        self._ffmpeg_proc = None
-        self._pump_task = None
-        self._seen_files.clear()
+        last_seen = set()
 
-    async def _pipe_streamlink_to_ffmpeg(self) -> None:
-        assert self._streamlink_proc and self._ffmpeg_proc
-        assert self._streamlink_proc.stdout and self._ffmpeg_proc.stdin
-        reader = self._streamlink_proc.stdout
-        writer = self._ffmpeg_proc.stdin
         try:
-            while not reader.at_eof():
-                data = await reader.read(64 * 1024)
-                if not data:
-                    break
-                writer.write(data)
-                await writer.drain()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # pragma: no cover - defensive log
-            logger.exception("Streamlink->ffmpeg pipe failed: %s", exc)
+            while not self._shutdown:
+                chunk_files = sorted(session_dir.glob("chunk_*.wav"))
+
+                for f in chunk_files:
+                    if f not in last_seen:
+                        # allow ffmpeg to finish writing
+                        await asyncio.sleep(0.05)
+
+                        size = f.stat().st_size
+                        if size > 2000:
+                            yield str(f)
+                        else:
+                            logger.warning("Ignoring silent/tiny chunk %s (%d bytes)", f, size)
+
+                        last_seen.add(f)
+
+                # If ffmpeg died — break and restart
+                if ffmpeg_proc.returncode is not None:
+                    raise RuntimeError(f"ffmpeg exited {ffmpeg_proc.returncode}")
+
+                await asyncio.sleep(0.2)
+
         finally:
-            with contextlib.suppress(Exception):
-                writer.write_eof()
+            logger.info("Cleaning up streamlink and ffmpeg…")
 
-    async def _collect_new_chunks(self) -> list[Path]:
-        files = sorted(self.tmp_dir.glob("chunk_*.wav"))
-        new_files = [path for path in files if path.name not in self._seen_files]
-        ready_files: list[Path] = []
-        for path in new_files:
-            # Ensure the file is closed by checking size stability
-            size_before = path.stat().st_size
-            await asyncio.sleep(0.1)
-            size_after = path.stat().st_size
-            if size_before == size_after:
-                self._seen_files.add(path.name)
-                ready_files.append(path)
-        return ready_files
-
-    async def _ensure_pipeline_alive(self) -> None:
-        restart_needed = False
-        if self._streamlink_proc and self._streamlink_proc.returncode not in (0, None):
-            logger.warning("streamlink exited with %s", self._streamlink_proc.returncode)
-            restart_needed = True
-        if self._ffmpeg_proc and self._ffmpeg_proc.returncode not in (0, None):
-            logger.warning("ffmpeg exited with %s", self._ffmpeg_proc.returncode)
-            restart_needed = True
-        if restart_needed:
-            await self._restart_pipeline()
-
-    async def _restart_pipeline(self) -> None:
-        if self._closing:
-            return
-        logger.info("Restarting capture pipeline in %.1fs", self.reconnect_delay)
-        await self._stop_pipeline()
-        await asyncio.sleep(self.reconnect_delay)
-        await self._start_pipeline()
-
-    async def _cleanup_tmp_dir(self) -> None:
-        if not self.tmp_dir.exists():
-            return
-        for path in self.tmp_dir.glob("*.wav"):
-            with contextlib.suppress(FileNotFoundError):
-                path.unlink()
-        if self._closing:
-            with contextlib.suppress(OSError):
-                shutil.rmtree(self.tmp_dir)
+            with suppress(Exception):
+                streamlink_proc.kill()
+            with suppress(Exception):
+                ffmpeg_proc.terminate()
 

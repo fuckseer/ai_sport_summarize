@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # Модели
     WHISPER_MODEL: str = "whisper-large-v3"
-    LLM_MODEL: str = "llama-3.1-70b-versatile"  # Возьмем модель поумнее для анализа
+    LLM_MODEL: str = "openai/gpt-oss-120b"  # Возьмем модель поумнее для анализа
 
 
 settings = Settings()
@@ -38,7 +38,7 @@ class GroqSettings(BaseSettings):
     api_key: str
     base_url: str = Field()
     whisper_model: str = Field(default="whisper-large-v3")
-    llm_model: str = Field(default="llama-3.1-8b-instant")
+    llm_model: str = Field(default="openai/gpt-oss-120b")
     language: str = Field(default="ru")
 
 

@@ -2,8 +2,11 @@ import os
 import json
 import subprocess
 import asyncio
+import time
 from pathlib import Path
 from typing import List, Dict
+
+import groq
 from tqdm import tqdm
 from groq_client import client
 from config import settings
@@ -38,13 +41,25 @@ class MatchProcessor:
 
     def transcribe_chunk(self, file_path: Path) -> str:
         """Отправляет кусок в Groq Whisper"""
-        with open(file_path, "rb") as f:
-            return client.audio.transcriptions.create(
-                file=f,
-                model=settings.WHISPER_MODEL,
-                language="ru",
-                response_format="text"
-            )
+        try:
+            with open(file_path, "rb") as f:
+                return client.audio.transcriptions.create(
+                    file=f,
+                    model=settings.WHISPER_MODEL,
+                    language="ru",
+                    response_format="text"
+                )
+        except groq.RateLimitError:
+            print('limit, wait 3 min')
+            time.sleep(180)
+            with open(file_path, "rb") as f:
+                return client.audio.transcriptions.create(
+                    file=f,
+                    model=settings.WHISPER_MODEL,
+                    language="ru",
+                    response_format="text"
+                )
+
 
     def analyze_text(self, text: str, chunk_index: int) -> Dict:
         """Анализирует текст и извлекает события"""
@@ -54,7 +69,7 @@ class MatchProcessor:
 
         prompt = f"""
         Ты — спортивный аналитик. Твоя задача — прочитать расшифровку комментария матча ({time_range}) 
-        и извлечь ТОЛЬКО ключевые события в формате JSON.
+        и извлечь ТОЛЬКО ключевые события в формате JSON. Пиши на русском.
 
         Текст:
         "{text}"
@@ -63,7 +78,7 @@ class MatchProcessor:
         1. Игнорируй воду, историю игроков, обсуждение погоды.
         2. Ищи: Голы, Опасные удары, Карточки, Замены, Травмы, VAR.
         3. Если событий нет, верни пустой список.
-        4. Формат JSON: {{ "events": [ {{ "minute": "примерная минута", "event": "Описание" }} ] }}
+        4. Формат JSON: {{ "events": [ {{ "time": "точное время", "event": "Описание" }} ] }}
         """
 
         try:
@@ -90,7 +105,7 @@ class MatchProcessor:
             text = self.transcribe_chunk(chunk_path)
 
             # Если текст пустой или мусорный - скипаем
-            if len(text) < 50:
+            if len(text) < 10:
                 continue
 
             # Анализ
@@ -100,7 +115,7 @@ class MatchProcessor:
                 full_report.extend(analysis["events"])
                 # Сразу выводим в консоль, чтобы видеть прогресс
                 for evt in analysis["events"]:
-                    print(f"⚽ [{evt.get('minute', '?')}] {evt.get('event')}")
+                    print(f"⚽ [{evt.get('time', '?')}] {evt.get('event')}")
 
         # 3. Финальный отчет
         self.save_report(full_report)
