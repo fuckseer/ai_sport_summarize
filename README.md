@@ -155,7 +155,7 @@ graph LR
 ---
 
 <div align="center">
-  <sub>Built with ❤️ by <a href="https://github.com/your-username">Your Name</a></sub>
+  <sub>Built with ❤️ by <a href="https://github.com/your-username">fuckseer</a></sub>
   <br>
   <sub>If you like this project, please give it a star ⭐️</sub>
 </div>
