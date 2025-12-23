@@ -1,5 +1,5 @@
 # AI Sport Summarize – Real-Time Text Commentator
-
+![img.png](img.png)
 This project turns any live sports stream into near real-time text commentary delivered to Telegram. It ingests an HLS/DASH/YouTube/Twitch stream, transcribes the broadcast audio with Groq Whisper, classifies key events with a Groq LLM, and pushes flash alerts and periodic summaries to configured chats.
 
 ## Features

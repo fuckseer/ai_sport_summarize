@@ -1,0 +1,14 @@
+[project]
+name = "match-transcriber"
+version = "0.1.0"
+dependencies = [
+    "aiogram>=3.0",
+    "yt-dlp",
+    "openai",
+    "pydantic-settings",
+    "ffmpeg-python",
+    "httpx[socks]"  # <--- Важно для socks5://
+]
+
+[project.scripts]
+match-bot = "src.main:main" # Нужно обернуть запуск в main функцию
