@@ -11,12 +11,5 @@ services:
     # Пробрасываем папки, чтобы файлы не пропадали после остановки
     volumes:
       - ./reports:/app/reports
-      # downloads можно не пробрасывать, это временные файлы,
-      # но если хочешь кеш - раскомментируй:
-      # - ./downloads:/app/downloads
-
-    # ВАЖНО ДЛЯ ЛОКАЛЬНЫХ МОДЕЛЕЙ И ПРОКСИ:
-    # Если бот должен видеть твой localhost (например, Ollama или SOCKS proxy на хосте),
-    # нужно добавить этот хак для Linux/Mac/Windows:
     extra_hosts:
       - "host.docker.internal:host-gateway"

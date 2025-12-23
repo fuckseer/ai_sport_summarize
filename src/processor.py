@@ -28,12 +28,22 @@ class MatchProcessor:
                 timeout=120.0  # Увеличенный таймаут для тяжелых файлов
             )
 
-        # Инициализация клиента (универсальный для Groq/Local/OpenAI)
-        self.client = OpenAI(
-            base_url=settings.API_BASE_URL,
-            api_key=settings.API_KEY,
-            http_client=http_client
-        )
+            self.audio_client = OpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=settings.API_KEY,
+                http_client=http_client
+            )
+
+            llm_base = settings.LLM_API_BASE_URL or settings.API_BASE_URL
+            llm_key = settings.LLM_API_KEY or settings.API_KEY
+
+            self.llm_client = OpenAI(
+                base_url=llm_base,
+                api_key=llm_key,
+                http_client=http_client
+            )
+            if settings.LLM_API_BASE_URL:
+                print(f"🧠 LLM Client connected to: {settings.LLM_API_BASE_URL}")
 
     def split_audio(self) -> List[Path]:
         """Режет и сжимает аудио, чтобы не превышать лимиты API (25MB)"""
@@ -61,7 +71,7 @@ class MatchProcessor:
         for attempt in range(max_retries):
             try:
                 with open(file_path, "rb") as f:
-                    return self.client.audio.transcriptions.create(
+                    return self.audio_client.audio.transcriptions.create(
                         file=f,
                         model=settings.WHISPER_MODEL,
                         language="ru",
@@ -118,7 +128,7 @@ class MatchProcessor:
         """
 
         try:
-            response = self.client.chat.completions.create(
+            response = self.llm_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": system_instruction},
                     {"role": "user", "content": f"Фрагмент матча:\n{text_with_timestamps}"}

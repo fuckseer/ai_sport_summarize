@@ -80,11 +80,6 @@ async def handle_link(message: types.Message):
         await message.answer("Это не похоже на ссылку. Отправь URL видео.")
         return
 
-    # Проверка доступа (если заполнил ALLOWED_USERS в конфиге)
-    if settings.ALLOWED_USERS and message.from_user.id not in settings.ALLOWED_USERS:
-        await message.answer("⛔ У вас нет доступа к этому боту.")
-        return
-
     # Запускаем обработку, не блокируя бота для других сообщений
     asyncio.create_task(process_video_task(message, message.text))
 

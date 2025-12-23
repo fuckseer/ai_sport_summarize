@@ -15,7 +15,11 @@ def download_video(url: str) -> Path:
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'quiet': False
+        'quiet': False,
+        'verbose': True,
+        'nocheckcertificate': True,
+        'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'referer': 'https://www.youtube.com/',
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
